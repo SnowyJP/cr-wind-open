@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Crosswind Calculator</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background-image: url("Backlayer.jpg");
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      font-family: "Abadi Extra Light", "Segoe UI", system-ui, sans-serif;
+      color: #333;
+    }
+
+    .overlay {
+      min-height: 100vh;
+      padding: 40px 60px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .calc-row {
+      display: flex;
+      gap: 30px;
+      flex-wrap: wrap;
+    }
+
+    .card {
+      width: 340px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #d0d0d0;
+      padding: 16px 18px 18px;
+      box-sizing: border-box;
+    }
+
+    .card-title {
+      font-size: 16px;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: inline-block;
+      font-size: 13px;
+      margin-right: 4px;
+    }
+
+    input[type="text"] {
+      width: 90px;
+      height: 16px;
+      box-sizing: border-box;
+      border: 1px solid #c0c0c0;
+      background: #dcdcdc;
+      padding: 0 3px;
+      font-family: inherit;
+      font-size: 11px;
+      outline: none;
+    }
+
+    .button-row {
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+
+    button {
+      padding: 3px 12px;
+      font-size: 12px;
+      border-radius: 0;
+      border: 1px solid #333;
+      background: #444;
+      color: #f5f5f5;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    button:hover {
+      background: #333;
+    }
+
+    .result-label {
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .status-area {
+      margin-top: 24px;
+      max-width: 720px;
+    }
+
+    .severity-title {
+      font-size: 16px;
+      margin-bottom: 6px;
+    }
+    .severity-title.none {
+      color: #555;
+    }
+    .severity-title.moderate {
+      color: #d2691e;
+    }
+    .severity-title.severe {
+      color: #b22222;
+    }
+
+    .warning-text {
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-line;
+      color: #222;
+    }
+  </style>
+</head>
+<body>
+  <div class="overlay">
+    <div class="calc-row">
+      <!-- FACT -->
+      <div class="card">
+        <div class="card-title">FACT CROSSWIND RY35/17</div>
+        <div>
+          <label for="fact-wind">WIND:</label>
+          <input id="fact-wind" type="text" />
+        </div>
+        <div class="button-row">
+          <button type="button" onclick="calculateCrosswind('FACT', 'fact', 350, 170)">Calculate</button>
+        </div>
+        <div class="result-label" id="fact-result">CROSSWIND:</div>
+      </div>
+
+      <!-- FAGG -->
+      <div class="card">
+        <div class="card-title">FAGG CROSSWIND RY27/09</div>
+        <div>
+          <label for="fagg-wind">WIND:</label>
+          <input id="fagg-wind" type="text" />
+        </div>
+        <div class="button-row">
+          <button type="button" onclick="calculateCrosswind('FAGG', 'fagg', 270, 90)">Calculate</button>
+        </div>
+        <div class="result-label" id="fagg-result">CROSSWIND:</div>
+      </div>
+    </div>
+
+    <div class="status-area">
+      <div id="severity-title" class="severity-title none">No Crosswind.</div>
+      <div id="warning-text" class="warning-text"></div>
+    </div>
+  </div>
+
+  <script>
+    // Parse 20017KT or 20017G33KT
+    function parseWind(text) {
+      const upper = text.toUpperCase();
+      const m = upper.match(/(\d{3})(\d{2,3})(G(\d{2,3}))?KT/);
+      if (!m) return null;
+
+      const dir = Number(m[1]);
+      const steady = Number(m[2]);
+      const gust = m[4] ? Number(m[4]) : null;
+
+      return {
+        direction: dir,
+        steadySpeed: steady,
+        gustSpeed: gust,
+        speedText: gust ? `${steady}G${gust}KT` : `${steady}KT`
+      };
+    }
+
+    function angleDiff(a, b) {
+      let diff = ((a - b + 540) % 360) - 180;
+      return diff;
+    }
+
+    function formatDdHhMm(date) {
+      const day = String(date.getUTCDate()).padStart(2, "0");
+      const hour = String(date.getUTCHours()).padStart(2, "0");
+      const min = String(date.getUTCMinutes()).padStart(2, "0");
+      return day + hour + min;
+    }
+
+    function addHoursUtc(date, hours) {
+      return new Date(date.getTime() + hours * 3600 * 1000);
+    }
+
+    // Extract steady/gust from "CROSSWIND: 16G31KT" or "CROSSWIND: 16KT"
+    function extractCross(text) {
+      const m = text.match(/(\d+)(G(\d+))?KT/i);
+      if (!m) return null;
+      const steady = Number(m[1]);
+      const gust = m[3] ? Number(m[3]) : null;
+      return { steady, gust };
+    }
+
+    function calculateCrosswind(stationCode, prefix, heading1, heading2) {
+      const input = document.getElementById(prefix + "-wind");
+      const resultEl = document.getElementById(prefix + "-result");
+      const severityTitle = document.getElementById("severity-title");
+      const warningText = document.getElementById("warning-text");
+
+      const raw = input.value.trim();
+      const wind = parseWind(raw);
+      if (!wind) {
+        resultEl.textContent = "CROSSWIND: unable to read wind (need dddffKT or dddffGggKT).";
+        return;
+      }
+
+      const calcForHeading = (speed, hdg) => {
+        const diff = angleDiff(wind.direction, hdg);
+        const radians = diff * Math.PI / 180;
+        const cross = speed * Math.sin(radians);
+        return Math.abs(cross);
+      };
+
+      // Steady crosswind
+      const steadyCross1 = calcForHeading(wind.steadySpeed, heading1);
+      const steadyCross2 = calcForHeading(wind.steadySpeed, heading2);
+      const steadyCross = Math.round(Math.max(steadyCross1, steadyCross2));
+
+      // Gust crosswind (if any)
+      let gustCross = null;
+      if (wind.gustSpeed != null) {
+        const gustCross1 = calcForHeading(wind.gustSpeed, heading1);
+        const gustCross2 = calcForHeading(wind.gustSpeed, heading2);
+        gustCross = Math.round(Math.max(gustCross1, gustCross2));
+      }
+
+      // Display for this runway
+      let displayText;
+      if (gustCross != null) {
+        displayText = `CROSSWIND: ${steadyCross}G${gustCross}KT`;
+      } else {
+        displayText = `CROSSWIND: ${steadyCross}KT`;
+      }
+      resultEl.textContent = displayText;
+
+      // Overall steady/gust from both runways
+      const factParsed = extractCross(document.getElementById("fact-result").textContent) || {};
+      const faggParsed = extractCross(document.getElementById("fagg-result").textContent) || {};
+
+      const allSteady = [];
+      const allGust = [];
+
+      if (factParsed.steady != null) allSteady.push(factParsed.steady);
+      if (factParsed.gust != null) allGust.push(factParsed.gust);
+      if (faggParsed.steady != null) allSteady.push(faggParsed.steady);
+      if (faggParsed.gust != null) allGust.push(faggParsed.gust);
+
+      const overallSteady = allSteady.length ? Math.max(...allSteady) : steadyCross;
+      const overallGust = allGust.length ? Math.max(...allGust) : (gustCross != null ? gustCross : null);
+
+      const thresholdValue = overallGust != null ? overallGust : overallSteady;
+
+      if (thresholdValue < 15) {
+        severityTitle.textContent = "No Crosswind.";
+        severityTitle.className = "severity-title none";
+        warningText.textContent = "";
+        return;
+      }
+
+      const now = new Date();
+      const issueTime = formatDdHhMm(now);
+      const validTo = formatDdHhMm(addHoursUtc(now, 2));
+      const severity = thresholdValue >= 25 ? "severe" : "moderate";
+
+      if (severity === "severe") {
+        severityTitle.textContent = "Severe crosswind:";
+        severityTitle.className = "severity-title severe";
+      } else {
+        severityTitle.textContent = "Moderate crosswind:";
+        severityTitle.className = "severity-title moderate";
+      }
+
+      const dirText = String(wind.direction).padStart(3, "0");
+
+      // CROSS WIND text: 16G31KT or 16KT
+      let crossWindText;
+      if (overallGust != null) {
+        crossWindText = `${overallSteady}G${overallGust}KT`;
+      } else {
+        crossWindText = `${overallSteady}KT`;
+      }
+
+      const warningLines = [
+        "000",
+        "WOZA46 " + stationCode + " " + issueTime + "Z",
+        stationCode + " AD WRNG 1 VALID " +
+          issueTime + "Z/" + validTo + "Z. CROSSWIND COMPONENT:",
+        "CROSS WIND " + crossWindText + " - SFC WIND " +
+          dirText + "/" + wind.speedText + "="
+      ];
+
+      warningText.textContent = warningLines.join("\n");
+    }
+  </script>
+</body>
+</html>
