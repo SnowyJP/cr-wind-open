@@ -190,6 +190,7 @@
       return new Date(date.getTime() + hours * 3600 * 1000);
     }
 
+    // Extract steady/gust from "CROSSWIND: 16G31KT" or "CROSSWIND: 16KT"
     function extractCross(text) {
       const m = text.match(/(\d+)(G(\d+))?KT/i);
       if (!m) return null;
@@ -218,10 +219,12 @@
         return Math.abs(cross);
       };
 
+      // Steady crosswind
       const steadyCross1 = calcForHeading(wind.steadySpeed, heading1);
       const steadyCross2 = calcForHeading(wind.steadySpeed, heading2);
       const steadyCross = Math.round(Math.max(steadyCross1, steadyCross2));
 
+      // Gust crosswind (if any)
       let gustCross = null;
       if (wind.gustSpeed != null) {
         const gustCross1 = calcForHeading(wind.gustSpeed, heading1);
@@ -229,6 +232,7 @@
         gustCross = Math.round(Math.max(gustCross1, gustCross2));
       }
 
+      // Display for this runway
       let displayText;
       if (gustCross != null) {
         displayText = `CROSSWIND: ${steadyCross}G${gustCross}KT`;
@@ -237,6 +241,7 @@
       }
       resultEl.textContent = displayText;
 
+      // Overall steady/gust from both runways
       const factParsed = extractCross(document.getElementById("fact-result").textContent) || {};
       const faggParsed = extractCross(document.getElementById("fagg-result").textContent) || {};
 
@@ -250,6 +255,7 @@
 
       const overallSteady = allSteady.length ? Math.max(...allSteady) : steadyCross;
       const overallGust = allGust.length ? Math.max(...allGust) : (gustCross != null ? gustCross : null);
+
       const thresholdValue = overallGust != null ? overallGust : overallSteady;
 
       if (thresholdValue < 15) {
@@ -273,6 +279,8 @@
       }
 
       const dirText = String(wind.direction).padStart(3, "0");
+
+      // CROSS WIND text: 16G31KT or 16KT
       let crossWindText;
       if (overallGust != null) {
         crossWindText = `${overallSteady}G${overallGust}KT`;
@@ -286,7 +294,7 @@
         stationCode + " AD WRNG 1 VALID " +
           issueTime + "Z/" + validTo + "Z. CROSSWIND COMPONENT:",
         "CROSS WIND " + crossWindText + " - SFC WIND " +
-          dirText + "/" + wind.speedText + ". SAWS"
+          dirText + "/" + wind.speedText + "="
       ];
 
       warningText.textContent = warningLines.join("\n");
