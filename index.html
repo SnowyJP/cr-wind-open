@@ -10,12 +10,13 @@
     }
 
     body {
+      margin: 0;
+      font-family: "Abadi MT Condensed Light", Abadi, sans-serif;
       background-image: url("Backlayer.jpg");
-      background-size: cover;
-      background-position: center;
+      background-position: center center;
       background-repeat: no-repeat;
-      background-attachment: fixed;
-      font-family: "Abadi Extra Light", "Segoe UI", system-ui, sans-serif;
+      background-size: cover;
+      background-color: #e6e6e6;
       color: #333;
     }
 
@@ -44,27 +45,35 @@
     }
 
     .card-title {
-      font-size: 16px;
-      letter-spacing: 0.05em;
-      margin-bottom: 12px;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
     }
 
     label {
       display: inline-block;
-      font-size: 13px;
-      margin-right: 4px;
+      font-size: 14px;
+      margin-right: 1px;
     }
 
     input[type="text"] {
-      width: 90px;
-      height: 16px;
+      width: 148px;
+      height: 24px;
+      line-height: 24px;
       box-sizing: border-box;
       border: 1px solid #c0c0c0;
       background: #dcdcdc;
       padding: 0 3px;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 13px;
       outline: none;
+    }
+
+    input[type="text"]::placeholder {
+      color: #4e5f69;
+      opacity: 1;
+      font-family: inherit;
+      font-style: normal;
     }
 
     .button-row {
@@ -90,6 +99,7 @@
     .result-label {
       font-size: 13px;
       margin-top: 4px;
+      white-space: pre-line;
     }
 
     .status-area {
@@ -98,11 +108,11 @@
     }
 
     .severity-title {
-      font-size: 16px;
+      font-size: 18px;
       margin-bottom: 6px;
     }
     .severity-title.none {
-      color: #555;
+      color: #617d87;
     }
     .severity-title.moderate {
       color: #d2691e;
@@ -112,22 +122,28 @@
     }
 
     .warning-text {
-      font-size: 13px;
+      font-family: "Courier New", Abadi, sans-serif;
+      font-weight: 600;
+      font-size: 17px;
       line-height: 1.4;
       white-space: pre-line;
-      color: #222;
+      color: #5e5469;
     }
   </style>
 </head>
 <body>
   <div class="overlay">
     <div class="calc-row">
-      <!-- FACT -->
       <div class="card">
         <div class="card-title">FACT CROSSWIND RY35/17</div>
         <div>
           <label for="fact-wind">WIND:</label>
-          <input id="fact-wind" type="text" />
+          <input
+            id="fact-wind"
+            type="text"
+            placeholder="e.g dddffGffKT or dddffKT"
+            oninput="document.getElementById('fagg-wind').value='';"
+          />
         </div>
         <div class="button-row">
           <button type="button" onclick="calculateCrosswind('FACT', 'fact', 350, 170)">Calculate</button>
@@ -135,12 +151,16 @@
         <div class="result-label" id="fact-result">CROSSWIND:</div>
       </div>
 
-      <!-- FAGG -->
       <div class="card">
         <div class="card-title">FAGG CROSSWIND RY27/09</div>
         <div>
           <label for="fagg-wind">WIND:</label>
-          <input id="fagg-wind" type="text" />
+          <input
+            id="fagg-wind"
+            type="text"
+            placeholder="e.g dddffGffKT or dddffKT"
+            oninput="document.getElementById('fact-wind').value='';"
+          />
         </div>
         <div class="button-row">
           <button type="button" onclick="calculateCrosswind('FAGG', 'fagg', 270, 90)">Calculate</button>
@@ -156,7 +176,14 @@
   </div>
 
   <script>
-    // Parse 20017KT or 20017G33KT
+    const STEADY_THRESHOLD = 15; // crosswind threshold
+    const GUST_REPORT_MIN = 20;  // don't report gust-crosswind below this
+
+    const lastCross = {
+      fact: { steady: null, gust: null },
+      fagg: { steady: null, gust: null }
+    };
+
     function parseWind(text) {
       const upper = text.toUpperCase();
       const m = upper.match(/(\d{3})(\d{2,3})(G(\d{2,3}))?KT/);
@@ -175,8 +202,7 @@
     }
 
     function angleDiff(a, b) {
-      let diff = ((a - b + 540) % 360) - 180;
-      return diff;
+      return ((a - b + 540) % 360) - 180;
     }
 
     function formatDdHhMm(date) {
@@ -188,15 +214,6 @@
 
     function addHoursUtc(date, hours) {
       return new Date(date.getTime() + hours * 3600 * 1000);
-    }
-
-    // Extract steady/gust from "CROSSWIND: 16G31KT" or "CROSSWIND: 16KT"
-    function extractCross(text) {
-      const m = text.match(/(\d+)(G(\d+))?KT/i);
-      if (!m) return null;
-      const steady = Number(m[1]);
-      const gust = m[3] ? Number(m[3]) : null;
-      return { steady, gust };
     }
 
     function calculateCrosswind(stationCode, prefix, heading1, heading2) {
@@ -215,61 +232,66 @@
       const calcForHeading = (speed, hdg) => {
         const diff = angleDiff(wind.direction, hdg);
         const radians = diff * Math.PI / 180;
-        const cross = speed * Math.sin(radians);
-        return Math.abs(cross);
+        return Math.abs(speed * Math.sin(radians));
       };
 
-      // Steady crosswind
-      const steadyCross1 = calcForHeading(wind.steadySpeed, heading1);
-      const steadyCross2 = calcForHeading(wind.steadySpeed, heading2);
-      const steadyCross = Math.round(Math.max(steadyCross1, steadyCross2));
+      const steadyCross = Math.round(Math.max(
+        calcForHeading(wind.steadySpeed, heading1),
+        calcForHeading(wind.steadySpeed, heading2)
+      ));
 
-      // Gust crosswind (if any)
       let gustCross = null;
       if (wind.gustSpeed != null) {
-        const gustCross1 = calcForHeading(wind.gustSpeed, heading1);
-        const gustCross2 = calcForHeading(wind.gustSpeed, heading2);
-        gustCross = Math.round(Math.max(gustCross1, gustCross2));
+        gustCross = Math.round(Math.max(
+          calcForHeading(wind.gustSpeed, heading1),
+          calcForHeading(wind.gustSpeed, heading2)
+        ));
+        if (gustCross < GUST_REPORT_MIN) gustCross = null;
       }
 
-      // Display for this runway
-      let displayText;
-      if (gustCross != null) {
-        displayText = `CROSSWIND: ${steadyCross}G${gustCross}KT`;
+      lastCross[prefix] = { steady: steadyCross, gust: gustCross };
+
+      const steadyIsCrosswind = steadyCross >= STEADY_THRESHOLD;
+      const gustIsCrosswind = gustCross != null;
+
+      let displayText = "CROSSWIND: ";
+      if (!steadyIsCrosswind && gustIsCrosswind) {
+        displayText += `steady wind observed is not a crosswind component, but gusts are ${gustCross}KT`;
+      } else if (steadyIsCrosswind && gustIsCrosswind) {
+        displayText += `${steadyCross}G${gustCross}KT`;
       } else {
-        displayText = `CROSSWIND: ${steadyCross}KT`;
+        displayText += `${steadyCross}KT`;
       }
       resultEl.textContent = displayText;
 
-      // Overall steady/gust from both runways
-      const factParsed = extractCross(document.getElementById("fact-result").textContent) || {};
-      const faggParsed = extractCross(document.getElementById("fagg-result").textContent) || {};
+      const fact = lastCross.fact;
+      const fagg = lastCross.fagg;
 
-      const allSteady = [];
-      const allGust = [];
+      const steadyCandidates = [];
+      const gustCandidates = [];
 
-      if (factParsed.steady != null) allSteady.push(factParsed.steady);
-      if (factParsed.gust != null) allGust.push(factParsed.gust);
-      if (faggParsed.steady != null) allSteady.push(faggParsed.steady);
-      if (faggParsed.gust != null) allGust.push(faggParsed.gust);
+      if (fact.steady != null) steadyCandidates.push(fact.steady);
+      if (fagg.steady != null) steadyCandidates.push(fagg.steady);
 
-      const overallSteady = allSteady.length ? Math.max(...allSteady) : steadyCross;
-      const overallGust = allGust.length ? Math.max(...allGust) : (gustCross != null ? gustCross : null);
+      if (fact.gust != null) gustCandidates.push(fact.gust);
+      if (fagg.gust != null) gustCandidates.push(fagg.gust);
 
-      const thresholdValue = overallGust != null ? overallGust : overallSteady;
+      const overallSteady = steadyCandidates.length ? Math.max(...steadyCandidates) : null;
+      const overallGust = gustCandidates.length ? Math.max(...gustCandidates) : null;
 
-      if (thresholdValue < 15) {
+      const overallSteadyIsCrosswind = overallSteady != null && overallSteady >= STEADY_THRESHOLD;
+      const overallGustIsCrosswind = overallGust != null;
+
+      const thresholdValue = overallGustIsCrosswind ? overallGust : (overallSteadyIsCrosswind ? overallSteady : 0);
+
+      if (thresholdValue < STEADY_THRESHOLD) {
         severityTitle.textContent = "No Crosswind.";
         severityTitle.className = "severity-title none";
         warningText.textContent = "";
         return;
       }
 
-      const now = new Date();
-      const issueTime = formatDdHhMm(now);
-      const validTo = formatDdHhMm(addHoursUtc(now, 2));
       const severity = thresholdValue >= 25 ? "severe" : "moderate";
-
       if (severity === "severe") {
         severityTitle.textContent = "Severe crosswind:";
         severityTitle.className = "severity-title severe";
@@ -278,11 +300,15 @@
         severityTitle.className = "severity-title moderate";
       }
 
+      const now = new Date();
+      const issueTime = formatDdHhMm(now);
+      const validTo = formatDdHhMm(addHoursUtc(now, 2));
       const dirText = String(wind.direction).padStart(3, "0");
 
-      // CROSS WIND text: 16G31KT or 16KT
       let crossWindText;
-      if (overallGust != null) {
+      if (!overallSteadyIsCrosswind && overallGustIsCrosswind) {
+        crossWindText = `${overallGust}KT`;
+      } else if (overallSteadyIsCrosswind && overallGustIsCrosswind) {
         crossWindText = `${overallSteady}G${overallGust}KT`;
       } else {
         crossWindText = `${overallSteady}KT`;
@@ -291,10 +317,8 @@
       const warningLines = [
         "000",
         "WOZA46 " + stationCode + " " + issueTime + "Z",
-        stationCode + " AD WRNG 1 VALID " +
-          issueTime + "Z/" + validTo + "Z. CROSSWIND COMPONENT:",
-        "CROSS WIND " + crossWindText + " - SFC WIND " +
-          dirText + "/" + wind.speedText + "="
+        stationCode + " AD WRNG 1 VALID " + issueTime + "Z/" + validTo + "Z. CROSSWIND COMPONENT:",
+        crossWindText + " - SFC WIND " + dirText + wind.speedText + "="
       ];
 
       warningText.textContent = warningLines.join("\n");
