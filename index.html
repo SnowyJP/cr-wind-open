@@ -57,7 +57,7 @@
     }
 
     input[type="text"] {
-      width: 155px;
+      width: 148px;
       height: 24px;
       line-height: 24px;
       box-sizing: border-box;
@@ -142,7 +142,7 @@
             id="fact-wind"
             type="text"
             placeholder="e.g dddffGffKT or dddffKT"
-            oninput="document.getElementById('fagg-wind').value='';"
+            oninput="handleWindInput('fact')"
           />
         </div>
         <div class="button-row">
@@ -159,7 +159,7 @@
             id="fagg-wind"
             type="text"
             placeholder="e.g dddffGffKT or dddffKT"
-            oninput="document.getElementById('fact-wind').value='';"
+            oninput="handleWindInput('fagg')"
           />
         </div>
         <div class="button-row">
@@ -176,14 +176,37 @@
   </div>
 
   <script>
+    // Thresholds
     const STEADY_THRESHOLD = 15; // crosswind threshold
     const GUST_REPORT_MIN = 20;  // don't report gust-crosswind below this
 
+    // Store latest computed values per runway (avoid parsing from text)
     const lastCross = {
       fact: { steady: null, gust: null },
       fagg: { steady: null, gust: null }
     };
 
+    function handleWindInput(activePrefix) {
+      const otherPrefix = activePrefix === "fact" ? "fagg" : "fact";
+
+      // Clear the other input
+      const otherInput = document.getElementById(otherPrefix + "-wind");
+      if (otherInput) otherInput.value = "";
+
+      // Reset the other computed values + label (prevents stale warning calculations)
+      lastCross[otherPrefix] = { steady: null, gust: null };
+      const otherResult = document.getElementById(otherPrefix + "-result");
+      if (otherResult) otherResult.textContent = "CROSSWIND:";
+
+      // Optional: clear warning display while typing (until user presses Calculate again)
+      const severityTitle = document.getElementById("severity-title");
+      const warningText = document.getElementById("warning-text");
+      severityTitle.textContent = "No Crosswind.";
+      severityTitle.className = "severity-title none";
+      warningText.textContent = "";
+    }
+
+    // Parse 20017KT or 20017G33KT
     function parseWind(text) {
       const upper = text.toUpperCase();
       const m = upper.match(/(\d{3})(\d{2,3})(G(\d{2,3}))?KT/);
@@ -235,11 +258,13 @@
         return Math.abs(speed * Math.sin(radians));
       };
 
+      // Steady crosswind
       const steadyCross = Math.round(Math.max(
         calcForHeading(wind.steadySpeed, heading1),
         calcForHeading(wind.steadySpeed, heading2)
       ));
 
+      // Gust crosswind (if any)
       let gustCross = null;
       if (wind.gustSpeed != null) {
         gustCross = Math.round(Math.max(
@@ -249,11 +274,13 @@
         if (gustCross < GUST_REPORT_MIN) gustCross = null;
       }
 
+      // Save values for overall warning logic
       lastCross[prefix] = { steady: steadyCross, gust: gustCross };
 
       const steadyIsCrosswind = steadyCross >= STEADY_THRESHOLD;
       const gustIsCrosswind = gustCross != null;
 
+      // Runway result display rules
       let displayText = "CROSSWIND: ";
       if (!steadyIsCrosswind && gustIsCrosswind) {
         displayText += `steady wind observed is not a crosswind component, but gusts are ${gustCross}KT`;
@@ -264,6 +291,7 @@
       }
       resultEl.textContent = displayText;
 
+      // Overall values (max across both runways)
       const fact = lastCross.fact;
       const fagg = lastCross.fagg;
 
@@ -300,11 +328,16 @@
         severityTitle.className = "severity-title moderate";
       }
 
+      // Warning text times
       const now = new Date();
       const issueTime = formatDdHhMm(now);
       const validTo = formatDdHhMm(addHoursUtc(now, 2));
       const dirText = String(wind.direction).padStart(3, "0");
 
+      // Crosswind component text for WARNING:
+      // - If steady < 15 and gust triggers => write ONLY gust answer
+      // - If steady >= 15 and gust exists  => steadyGgust
+      // - Else steady only
       let crossWindText;
       if (!overallSteadyIsCrosswind && overallGustIsCrosswind) {
         crossWindText = `${overallGust}KT`;
@@ -314,6 +347,7 @@
         crossWindText = `${overallSteady}KT`;
       }
 
+      // Keep your preferred last line format (no "CROSS WIND", no slash)
       const warningLines = [
         "000",
         "WOZA46 " + stationCode + " " + issueTime + "Z",
